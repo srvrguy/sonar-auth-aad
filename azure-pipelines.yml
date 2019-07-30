@@ -1,0 +1,64 @@
+# Azure Pipeline Configuration for SonarQube AAD Auth Plugin
+#
+# This pipeline configuration runs unit tests with coverage, builds the plugin package, and scans the code with
+# SonarCloud, a hosted instance of SonarQube. It also archives the built plugin jar as a build artifact and displays
+# the results of the SonarCloud scan.
+#
+# To get this working:
+# - If you don't have one already, create an account and organization on SonarCloud (https://sonarcloud.io/about)
+# - Install the SonarCloud Azure DevOps Marketplace Extension to your DevOps organization. It can be found at
+#   https://marketplace.visualstudio.com/items?itemName=SonarSource.sonarcloud
+# - In the DevOps project settings, create a new service connection for SonarCloud and name it "sonarCloudConnection".
+# - Create a variable in the pipeline settings called "sonarOrganization" and make the value the name of the organization
+#   you created in SonarCloud.
+# - Create a variable in the pipeline settings called "sonarProjectKey" and set it to the "key" that you will use for
+#   the project on SonarCloud
+#
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- task: SonarCloudPrepare@1
+  displayName: 'Prepare SonarCloud Analysis Configuration'
+  inputs:
+    SonarCloud: 'sonarCloudConnection'
+    organization: '$(sonarOrganization)'
+    scannerMode: 'Other'
+
+- task: Maven@3
+  displayName: 'Maven Build'
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'clean org.jacoco:jacoco-maven-plugin:prepare-agent install sonar:sonar -Dsonar.projectKey=$(sonarProjectKey)'
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+    codeCoverageToolOption: 'JaCoCo'
+    javaHomeOption: 'JDKVersion'
+    mavenVersionOption: 'Default'
+    mavenAuthenticateFeed: false
+    mavenOptions: '-Xmx3072m'
+    effectivePomSkip: false
+    sonarQubeRunAnalysis: true
+    sqMavenPluginVersionChoice: 'latest'
+    jdkVersionOption: '1.8'
+    jdkArchitectureOption: 'x64'
+
+- task: CopyFiles@2
+  displayName: 'Copy JAR to Staging Directory'
+  inputs:
+    SourceFolder: '$(system.defaultworkingdirectory)'
+    Contents: '**/target/*.jar'
+    TargetFolder: '$(build.artifactstagingdirectory)'
+  condition: succeededOrFailed()
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish JAR Build Artifact to "drop"'
+  inputs:
+    PathtoPublish: '$(build.artifactstagingdirectory)'
+  condition: succeededOrFailed()
+
+- task: SonarCloudPublish@1
+  displayName: 'Publish SonarCloud Results'
+  inputs:
+    pollingTimeoutSec: '300'
